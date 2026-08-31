@@ -121,7 +121,7 @@ def geocode_and_route(people):
             p['lat'] = None
             p['lon'] = None
 
-    return [p for p in people if p.get('lat') is not None]
+    return [p for p in people if p.get('lat') is not None and p.get('drive_dist', 0) <= 50]
 
 def generate_leaflet_map(people):
     html = f"""<!DOCTYPE html>
@@ -322,7 +322,7 @@ def generate_leaflet_map(people):
             
             try {{
                 // 2. Run K-Means on purely unique locations
-                const clusteredUnique = turf.clustersKmeans(uniquePoints, {{numberOfCenters: actualK}});
+                const clusteredUnique = turf.clustersKmeans(uniquePoints, {{numberOfClusters: actualK}});
                 
                 // 3. Map cluster IDs back to all valid people
                 const clusterLookup = {{}};
