@@ -28,7 +28,7 @@ def main():
     )
     cur = conn.cursor()
     cur.execute("""
-        SELECT a.attributes_street_line_1, a.attributes_city, a.attributes_state, a.attributes_zip
+        SELECT a.attributes_street_line_1, a.attributes_city, a.attributes_state, a.attributes_zip, p.age
         FROM raw.v_people p
         JOIN raw.pco_addresses a ON p.person_id = a.relationships_person_data_id::INTEGER
         WHERE a.attributes_street_line_1 IS NOT NULL
@@ -41,8 +41,9 @@ def main():
     conn.close()
 
     coords = []
+    ages = []
     for row in rows:
-        street, city, state, zip_code = row
+        street, city, state, zip_code, age = row
         street = (street or "").replace("\n", " ").strip()
         city = (city or "").strip()
         state = (state or "").strip()
@@ -52,8 +53,23 @@ def main():
         geo = geo_cache.get(addr_str)
         if geo and geo.get('lat') is not None:
             coords.append(Point(geo['lon'], geo['lat']))
+            
+            # Map age to bucket
+            if age is None:
+                b = "unknown"
+            elif age <= 17:
+                b = "age_0_17"
+            elif age <= 34:
+                b = "age_18_34"
+            elif age <= 49:
+                b = "age_35_49"
+            elif age <= 64:
+                b = "age_50_64"
+            else:
+                b = "age_65_plus"
+            ages.append(b)
 
-    gdf_people = gpd.GeoDataFrame(geometry=coords, crs="EPSG:4326")
+    gdf_people = gpd.GeoDataFrame({'age_bucket': ages}, geometry=coords, crs="EPSG:4326")
     if gdf_tracts.crs != "EPSG:4326":
         gdf_tracts = gdf_tracts.to_crs("EPSG:4326")
 
@@ -61,6 +77,18 @@ def main():
     joined = gpd.sjoin(gdf_people, gdf_tracts, how="inner", predicate="intersects")
     tract_counts = joined['GEOID'].value_counts().to_dict()
     total_people = sum(tract_counts.values())
+    
+    church_stats = {}
+    for geoid, group in joined.groupby('GEOID'):
+        counts = group['age_bucket'].value_counts().to_dict()
+        church_stats[geoid] = {
+            'pop': len(group),
+            'age_0_17': counts.get('age_0_17', 0),
+            'age_18_34': counts.get('age_18_34', 0),
+            'age_35_49': counts.get('age_35_49', 0),
+            'age_50_64': counts.get('age_50_64', 0),
+            'age_65_plus': counts.get('age_65_plus', 0),
+        }
 
     gdf_tracts['church_pop'] = gdf_tracts['GEOID'].map(tract_counts).fillna(0)
 
@@ -73,9 +101,11 @@ def main():
     
     tables = "B01001,B11003,B12001,B03002,C16001,B19001,B17001,B25003"
     url = f"http://api.censusreporter.org/1.0/data/show/latest?table_ids={tables}&geo_ids={geo_ids_param}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     
     resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        print('CENSUS API ERROR:', resp.status_code, resp.text)
     census_raw = resp.json().get('data', {})
     
     census_stats = {}
@@ -87,6 +117,11 @@ def main():
         stats = {}
         stats['total_pop'] = get_est(tract_data, 'B01001', 1)
         stats['kids'] = sum(get_est(tract_data, 'B01001', i) for i in [3,4,5,6, 27,28,29,30])
+        stats['age_0_17'] = stats['kids']
+        stats['age_18_34'] = sum(get_est(tract_data, 'B01001', i) for i in [7,8,9,10,11,12, 31,32,33,34,35,36])
+        stats['age_35_49'] = sum(get_est(tract_data, 'B01001', i) for i in [13,14,15, 37,38,39])
+        stats['age_50_64'] = sum(get_est(tract_data, 'B01001', i) for i in [16,17,18,19, 40,41,42,43])
+        stats['age_65_plus'] = sum(get_est(tract_data, 'B01001', i) for i in [20,21,22,23,24,25, 44,45,46,47,48,49])
         stats['total_families'] = get_est(tract_data, 'B11003', 1)
         stats['single_parent_kids'] = get_est(tract_data, 'B11003', 10) + get_est(tract_data, 'B11003', 16)
         stats['total_marital'] = get_est(tract_data, 'B12001', 1)
@@ -142,6 +177,7 @@ def main():
 
     geojson_str = active_tracts[['GEOID', 'church_pop', 'cumulative_pct', 'cumulative_pop', 'geometry']].to_json()
     census_stats_json = json.dumps(census_stats)
+    church_stats_json = json.dumps(church_stats)
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -198,7 +234,14 @@ def main():
         <p style="font-size: 12px; color: #8b949e; margin-top:-5px; margin-bottom: 15px;">Combined census profile of the highlighted purple footprint.</p>
         
         <div class="stat-row"><span class="stat-label">Total Population</span><span class="stat-val" id="ms-pop">0</span></div>
-        <div class="stat-row"><span class="stat-label">Children (0-17)</span><span class="stat-val" id="ms-kids">0%</span></div>
+        <h4 style="margin: 15px 0 5px 0; font-size: 13px; color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 5px;">Age Profile <span style="font-size: 10px; color:#888; float:right;">(Tracts vs Church)</span></h4>
+        <div class="stat-row"><span class="stat-label">Ages 0-17</span><span class="stat-val"><span id="ms-age-0-17">0%</span> <span style="color:#888;font-size:11px;margin:0 4px;">vs</span> <span id="ch-age-0-17" style="color:#ffeb3b">0%</span></span></div>
+        <div class="stat-row"><span class="stat-label">Ages 18-34</span><span class="stat-val"><span id="ms-age-18-34">0%</span> <span style="color:#888;font-size:11px;margin:0 4px;">vs</span> <span id="ch-age-18-34" style="color:#ffeb3b">0%</span></span></div>
+        <div class="stat-row"><span class="stat-label">Ages 35-49</span><span class="stat-val"><span id="ms-age-35-49">0%</span> <span style="color:#888;font-size:11px;margin:0 4px;">vs</span> <span id="ch-age-35-49" style="color:#ffeb3b">0%</span></span></div>
+        <div class="stat-row"><span class="stat-label">Ages 50-64</span><span class="stat-val"><span id="ms-age-50-64">0%</span> <span style="color:#888;font-size:11px;margin:0 4px;">vs</span> <span id="ch-age-50-64" style="color:#ffeb3b">0%</span></span></div>
+        <div class="stat-row"><span class="stat-label">Ages 65+</span><span class="stat-val"><span id="ms-age-65-plus">0%</span> <span style="color:#888;font-size:11px;margin:0 4px;">vs</span> <span id="ch-age-65-plus" style="color:#ffeb3b">0%</span></span></div>
+        
+        <h4 style="margin: 15px 0 5px 0; font-size: 13px; color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 5px;">Neighborhood Status</h4>
         <div class="stat-row"><span class="stat-label">Poverty Rate</span><span class="stat-val" id="ms-poverty">0%</span></div>
         <div class="stat-row"><span class="stat-label">Single-Parent Families</span><span class="stat-val" id="ms-singleparent">0%</span></div>
         <div class="stat-row"><span class="stat-label">Married Adults</span><span class="stat-val" id="ms-married">0%</span></div>
@@ -224,6 +267,7 @@ def main():
         
         const geojsonData = {geojson_str};
         const censusStats = {census_stats_json};
+        const churchStats = {church_stats_json};
         const churchTractId = "{church_tract_id}";
         let geojsonLayer;
         
@@ -360,7 +404,18 @@ def main():
             peopleCountLabel.innerText = maxPopIncluded;
             
             document.getElementById('ms-pop').innerText = agg.total_pop.toLocaleString();
-            document.getElementById('ms-kids').innerText = formatPct(agg.kids, agg.total_pop);
+            document.getElementById('ms-age-0-17').innerText = formatPct(agg.age_0_17, agg.total_pop);
+            document.getElementById('ms-age-18-34').innerText = formatPct(agg.age_18_34, agg.total_pop);
+            document.getElementById('ms-age-35-49').innerText = formatPct(agg.age_35_49, agg.total_pop);
+            document.getElementById('ms-age-50-64').innerText = formatPct(agg.age_50_64, agg.total_pop);
+            document.getElementById('ms-age-65-plus').innerText = formatPct(agg.age_65_plus, agg.total_pop);
+            
+            document.getElementById('ch-age-0-17').innerText = formatPct(c_agg.age_0_17, c_agg.pop);
+            document.getElementById('ch-age-18-34').innerText = formatPct(c_agg.age_18_34, c_agg.pop);
+            document.getElementById('ch-age-35-49').innerText = formatPct(c_agg.age_35_49, c_agg.pop);
+            document.getElementById('ch-age-50-64').innerText = formatPct(c_agg.age_50_64, c_agg.pop);
+            document.getElementById('ch-age-65-plus').innerText = formatPct(c_agg.age_65_plus, c_agg.pop);
+
             document.getElementById('ms-poverty').innerText = formatPct(agg.in_poverty, agg.total_pov);
             document.getElementById('ms-singleparent').innerText = formatPct(agg.single_parent_kids, agg.total_families);
             document.getElementById('ms-married').innerText = formatPct(agg.married, agg.total_marital);
