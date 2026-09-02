@@ -213,10 +213,11 @@ def main():
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
+
         const map = L.map('map').setView([41.637, -93.686], 11);
         
-        L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-            attribution: '&copy; OpenStreetMap &copy; CARTO',
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+            attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
             subdomains: 'abcd',
             maxZoom: 20
         }}).addTo(map);
@@ -226,8 +227,7 @@ def main():
         const churchTractId = "{church_tract_id}";
         let geojsonLayer;
         
-        L.marker([41.6371503, -93.6860107]).addTo(map)
-            .bindPopup("<b>Westchester EFC</b>");
+        L.marker([41.6371503, -93.6860107]).addTo(map).bindPopup("<b>Westchester EFC</b>");
 
         const slider = document.getElementById('coverageSlider');
         const pctLabel = document.getElementById('pctLabel');
@@ -242,10 +242,24 @@ def main():
         }};
         info.update = function (props) {{
             this._div.innerHTML = props ?
-                '<b>Tract: ' + props.GEOID + '</b><br />' + props.church_pop + ' Core People'
+                '<b>Tract: ' + props.GEOID + '</b><br />' + props.church_pop + ' Core People<br/><span style="font-size:11px;color:#888;">Click to toggle</span>'
                 : 'Hover over a tract';
         }};
         info.addTo(map);
+
+        let selectedTractIds = new Set();
+        let userOverrodeSlider = false;
+
+        function toggleTract(e) {{
+            const geoid = e.target.feature.properties.GEOID;
+            if (selectedTractIds.has(geoid)) {{
+                selectedTractIds.delete(geoid);
+            }} else {{
+                selectedTractIds.add(geoid);
+            }}
+            userOverrodeSlider = true;
+            renderState();
+        }}
 
         function highlightFeature(e) {{
             var layer = e.target;
@@ -255,40 +269,59 @@ def main():
         }}
 
         function resetHighlight(e) {{
-            geojsonLayer.resetStyle(e.target);
+            e.target.setStyle(getStyle(e.target.feature));
             info.update();
         }}
 
-        function onEachFeature(feature, layer) {{
-            layer.on({{ mouseover: highlightFeature, mouseout: resetHighlight }});
+        function formatPct(val, total) {{
+            if (total === 0 || !total) return "0%";
+            return (val / total * 100).toFixed(1) + "%";
         }}
 
-        function getStyle(feature, threshold) {{
+        function getStyle(feature) {{
             const props = feature.properties;
+            const isSelected = selectedTractIds.has(props.GEOID);
+            
             if (props.GEOID === churchTractId) {{
-                return props.cumulative_pct <= threshold ? 
-                    {{ fillColor: '#ffeb3b', color: '#ffffff', weight: 2, fillOpacity: 0.8 }} :
+                return isSelected ? 
+                    {{ fillColor: '#ffeb3b', color: '#ffffff', weight: 3, fillOpacity: 0.8 }} :
                     {{ fillColor: '#ffeb3b', color: '#888888', weight: 1, fillOpacity: 0.2 }};
             }}
             
-            if (props.cumulative_pct <= threshold) {{
-                return {{ fillColor: '#9c27b0', color: '#ffffff', weight: 1.5, fillOpacity: 0.6 }};
+            if (isSelected) {{
+                return {{ fillColor: '#9c27b0', color: '#ffffff', weight: 2, fillOpacity: 0.6 }};
             }} else if (props.church_pop > 0) {{
                 return {{ fillColor: '#2196f3', color: '#2196f3', weight: 1, fillOpacity: 0.15 }};
             }} else {{
                 return {{ fillOpacity: 0, weight: 0 }};
             }}
         }}
-        
-        function formatPct(val, total) {{
-            if (total === 0 || !total) return "0%";
-            return (val / total * 100).toFixed(1) + "%";
-        }}
+
+        geojsonLayer = L.geoJson(geojsonData, {{
+            style: function(feature) {{ return getStyle(feature); }},
+            onEachFeature: function(feature, layer) {{
+                layer.on({{ mouseover: highlightFeature, mouseout: resetHighlight, click: toggleTract }});
+            }},
+            filter: function(feature) {{
+                return feature.properties.church_pop > 0 || feature.properties.GEOID === churchTractId;
+            }}
+        }}).addTo(map);
 
         function updateMap() {{
             const threshold = parseInt(slider.value);
-            pctLabel.innerText = threshold + '%';
             
+            selectedTractIds.clear();
+            geojsonData.features.forEach(f => {{
+                if (f.properties.cumulative_pct <= threshold) {{
+                    selectedTractIds.add(f.properties.GEOID);
+                }}
+            }});
+            userOverrodeSlider = false;
+            
+            renderState();
+        }}
+
+        function renderState() {{
             let tractsIncluded = 0;
             let maxPopIncluded = 0;
             
@@ -299,26 +332,20 @@ def main():
                 total_housing: 0, renters: 0
             }};
             
-            if (geojsonLayer) {{
-                map.removeLayer(geojsonLayer);
+            geojsonLayer.eachLayer(function(layer) {{
+                layer.setStyle(getStyle(layer.feature));
+            }});
+            
+            if (userOverrodeSlider) {{
+                pctLabel.innerText = "Custom";
+            }} else {{
+                pctLabel.innerText = slider.value + '%';
             }}
             
-            geojsonLayer = L.geoJson(geojsonData, {{
-                style: function(feature) {{
-                    return getStyle(feature, threshold);
-                }},
-                onEachFeature: onEachFeature,
-                filter: function(feature) {{
-                    return feature.properties.church_pop > 0 || feature.properties.GEOID === churchTractId;
-                }}
-            }}).addTo(map);
-            
             geojsonData.features.forEach(f => {{
-                if (f.properties.cumulative_pct <= threshold) {{
+                if (selectedTractIds.has(f.properties.GEOID)) {{
                     tractsIncluded++;
-                    if (f.properties.cumulative_pop > maxPopIncluded) {{
-                        maxPopIncluded = f.properties.cumulative_pop;
-                    }}
+                    maxPopIncluded += (f.properties.church_pop || 0);
                     
                     let tractStats = censusStats[f.properties.GEOID];
                     if (tractStats) {{
@@ -346,6 +373,7 @@ def main():
 
         slider.addEventListener('input', updateMap);
         updateMap();
+
     </script>
 </body>
 </html>
