@@ -176,7 +176,8 @@ def generate_leaflet_map(people):
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
             <h3 style="margin:0;">Map Filters</h3>
             <div>
-                <a href="index.html" style="color:#58a6ff; font-size:12px; text-decoration:none; border:1px solid #58a6ff; padding:3px 8px; border-radius:4px; margin-right:8px;">&larr; Network</a>
+                <a href="index.html" style="color:#58a6ff; font-size:12px; text-decoration:none; border:1px solid #58a6ff; padding:3px 8px; border-radius:4px; margin-right:4px;">&larr; Network</a>
+                <a href="age_histogram.html" style="color:#58a6ff; font-size:12px; text-decoration:none; border:1px solid #58a6ff; padding:3px 8px; border-radius:4px; margin-right:8px;">Demographics &rarr;</a>
                 <button onclick="togglePanel('controls-content', this)" style="background:none; border:none; color:#58a6ff; font-size:18px; cursor:pointer; padding:0; line-height:1;">&minus;</button>
             </div>
         </div>
