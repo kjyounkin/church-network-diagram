@@ -59,8 +59,8 @@ def main():
     # Count people per tract
     tract_counts = joined['GEOID'].value_counts().to_dict()
     total_people = sum(tract_counts.values())
-    target_80 = total_people * 0.8
-    print(f"Total Mapped: {total_people}, Target 80%: {target_80:.1f}")
+    target_66 = total_people * 0.66
+    print(f"Total Mapped: {total_people}, Target 66%: {target_66:.1f}")
 
     # Assign counts to tract dataframe
     gdf_tracts['church_pop'] = gdf_tracts['GEOID'].map(tract_counts).fillna(0)
@@ -73,7 +73,7 @@ def main():
     selected_tracts = set([church_tract_id])
     current_pop = tract_counts.get(church_tract_id, 0)
     
-    while current_pop < target_80:
+    while current_pop < target_66:
         # Find neighbors of selected tracts
         selected_geom = gdf_tracts[gdf_tracts['GEOID'].isin(selected_tracts)].geometry.unary_union
         
