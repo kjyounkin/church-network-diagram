@@ -209,6 +209,7 @@ def main():
     <div class="nav">
         <a href="index.html">&larr; Network</a>
         <a href="geo_map.html">Geo Map &rarr;</a>
+        <a href="core_50_mission_summary.html">Mission Summary &rarr;</a>
     </div>
     
     <div class="controls">
