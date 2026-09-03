@@ -124,6 +124,12 @@ def geocode_and_route(people):
     return [p for p in people if p.get('lat') is not None and p.get('drive_dist', 0) <= 50]
 
 def generate_leaflet_map(people):
+    import os
+    isochrone_json = '{"type": "FeatureCollection", "features": []}'
+    if os.path.exists('church_isochrones.json'):
+        with open('church_isochrones.json', 'r') as f:
+            isochrone_json = f.read()
+
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -226,6 +232,7 @@ def generate_leaflet_map(people):
         
         const rawPeople = {json.dumps(people)};
         let filteredPeople = rawPeople;
+        const churchIsochrones = {isochrone_json};
         
         // Define map and base layer
         const map = L.map('map').setView([{CHURCH_LAT}, {CHURCH_LON}], 11);
@@ -420,34 +427,30 @@ def generate_leaflet_map(people):
             </div>`;
             document.getElementById('stats-content').innerHTML = statsHtml;
 
-            // 3. Draw Convex Hull Contours
+            // 3. Draw Drive Time Contours (Isochrones)
             contourLayer.clearLayers();
-            if (showContours) {{
-                buckets.forEach(b => {{
-                    if (!activeTimes.has(b)) return;
-                    
-                    const bIndex = buckets.indexOf(b);
-                    const includedBuckets = buckets.slice(0, bIndex + 1);
-                    
-                    const pointsForHull = rawPeople.filter(p => includedBuckets.includes(getBucket(p.drive_time)));
-                    if (pointsForHull.length > 2) {{
-                        const pts = turf.featureCollection(pointsForHull.map(p => turf.point([p.lon, p.lat])));
-                        const hull = turf.convex(pts);
-                        if (hull) {{
-                            const buffered = turf.buffer(hull, 0.5, {{units: 'miles'}});
-                            L.geoJSON(buffered, {{
-                                style: {{
-                                    color: bucketColors[b],
-                                    weight: 2,
-                                    opacity: 0.8,
-                                    fillColor: bucketColors[b],
-                                    fillOpacity: 0.1,
-                                    dashArray: '4'
-                                }}
-                            }}).addTo(contourLayer);
-                        }}
+            if (showContours && churchIsochrones && churchIsochrones.features) {{
+                const sortedFeatures = churchIsochrones.features.slice().sort((a,b) => b.properties.time - a.properties.time);
+                
+                L.geoJSON(sortedFeatures, {{
+                    filter: function(feature) {{
+                        const b = getBucket(feature.properties.time);
+                        return activeTimes.has(b);
+                    }},
+                    style: function(feature) {{
+                        return {{
+                            color: feature.properties.color || '#FF0000',
+                            weight: 3.5,
+                            fillOpacity: 0.05
+                        }};
+                    }},
+                    onEachFeature: function(feature, layer) {{
+                        layer.bindTooltip(feature.properties.time + ' mins', {{
+                            sticky: true,
+                            className: 'hh-label'
+                        }});
                     }}
-                }});
+                }}).addTo(contourLayer);
             }}
             
             // 4. Draw K-Means Clusters
