@@ -12,18 +12,31 @@ CHURCH_LAT = 41.6371503
 CHURCH_LON = -93.6860107
 center_point = (CHURCH_LAT, CHURCH_LON)
 
-graph_file = "/home/kyle/ad_hoc_analysis/graph_45k.graphml"
+dist = 90000
+graph_file = "/home/kyle/church-network-diagram/graph_90k.graphml"
 
-print("Loading street network from disk...")
-G = ox.load_graphml(graph_file)
+import os
+if os.path.exists(graph_file):
+    print("Loading street network from disk...")
+    G = ox.load_graphml(graph_file)
+else:
+    print(f"Downloading street network within {dist} meters...")
+    G = ox.graph_from_point(center_point, dist=dist, network_type='drive')
+    print("Adding edge speeds and travel times...")
+    G = ox.add_edge_speeds(G)
+    G = ox.add_edge_travel_times(G)
+    ox.save_graphml(G, graph_file)
 
 print("Projecting graph...")
 G_proj = ox.project_graph(G)
 
 center_node = ox.distance.nearest_nodes(G, center_point[1], center_point[0])
 
-trip_times = [45, 40, 35, 30, 25, 20, 15, 10, 5]
+trip_times = [60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5]
 colors = {
+    60: '#111111',
+    55: '#222222',
+    50: '#333333',
     45: '#444444',
     40: '#666666',
     35: '#888888',

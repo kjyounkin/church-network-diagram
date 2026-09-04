@@ -253,20 +253,27 @@ def generate_leaflet_map(people):
         let activeKMeans = null;
 
         // Drive Time Buckets
+        
         function getBucket(time) {{
             if (time <= 5) return '0-5 mins';
             if (time <= 10) return '5-10 mins';
             if (time <= 15) return '10-15 mins';
             if (time <= 20) return '15-20 mins';
-            return '20+ mins';
+            if (time <= 30) return '20-30 mins';
+            if (time <= 45) return '30-45 mins';
+            if (time <= 60) return '45-60 mins';
+            return '60+ mins';
         }}
-        const buckets = ['0-5 mins', '5-10 mins', '10-15 mins', '15-20 mins', '20+ mins'];
+        const buckets = ['0-5 mins', '5-10 mins', '10-15 mins', '15-20 mins', '20-30 mins', '30-45 mins', '45-60 mins', '60+ mins'];
         const bucketColors = {{
             '0-5 mins': '#3fb950',
             '5-10 mins': '#2f81f7',
             '10-15 mins': '#a371f7',
             '15-20 mins': '#d29922',
-            '20+ mins': '#f85149'
+            '20-30 mins': '#f85149',
+            '30-45 mins': '#ff7b72',
+            '45-60 mins': '#ffa657',
+            '60+ mins': '#ffc0db'
         }};
 
         // Build Filters
